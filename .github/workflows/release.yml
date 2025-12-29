@@ -1,0 +1,159 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to release (e.g. v0.1.0)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    name: "prep: release"
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      checkout_ref: ${{ steps.resolve.outputs.checkout_ref }}
+      prerelease: ${{ steps.resolve.outputs.prerelease }}
+      release_name: ${{ steps.resolve.outputs.release_name }}
+    steps:
+      - name: Resolve release target
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref="${{ github.ref }}"
+          input_tag="${{ inputs.tag }}"
+          tag=""
+          checkout_ref=""
+          prerelease="false"
+          release_name=""
+
+          if [ -n "$input_tag" ]; then
+            tag="$input_tag"
+            checkout_ref="$input_tag"
+          elif [[ "$ref" == refs/tags/* ]]; then
+            tag="${ref#refs/tags/}"
+            checkout_ref="$tag"
+          fi
+
+          if [ -z "$tag" ]; then
+            echo "tag ref is required" >&2
+            exit 1
+          fi
+          if [[ "$tag" != v* ]]; then
+            echo "tag must start with v (e.g. v1.2.3)" >&2
+            exit 1
+          fi
+          if [[ "$tag" == *-* ]]; then
+            prerelease="true"
+          fi
+          release_name="$tag"
+
+          {
+            echo "tag=$tag"
+            echo "checkout_ref=$checkout_ref"
+            echo "prerelease=$prerelease"
+            echo "release_name=$release_name"
+          } >> "$GITHUB_OUTPUT"
+
+  release-github:
+    name: "release: github"
+    if: needs.prepare.outputs.tag != ''
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Generate release notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          current_tag="${{ needs.prepare.outputs.tag }}"
+          subject_regex='^([a-zA-Z]+)(\([^)]+\))?(!)?: (.+)$'
+          prev_tag="$(git describe --tags --match 'v*' --abbrev=0 "${current_tag}^" 2>/dev/null || true)"
+          if [ -n "$prev_tag" ]; then
+            range="${prev_tag}..${current_tag}"
+            echo "Changes since ${prev_tag}" > RELEASE_NOTES.md
+          else
+            range="${current_tag}"
+            echo "Changes in ${current_tag}" > RELEASE_NOTES.md
+          fi
+          echo "" >> RELEASE_NOTES.md
+          declare -A sections
+          add_item() {
+            local key="$1"
+            local line="$2"
+            if [ -n "${sections[$key]+x}" ]; then
+              sections["$key"]="${sections[$key]}"$'\n'"$line"
+            else
+              sections["$key"]="$line"
+            fi
+          }
+          while IFS='|' read -r subject hash; do
+            type="other"
+            title="$subject"
+            if [[ "$subject" =~ $subject_regex ]]; then
+              type="${BASH_REMATCH[1]}"
+              scope="${BASH_REMATCH[2]}"
+              breaking="${BASH_REMATCH[3]}"
+              message="${BASH_REMATCH[4]}"
+              if [ -n "$scope" ]; then
+                scope="${scope:1:${#scope}-2}"
+                title="${scope}: ${message}"
+              else
+                title="${message}"
+              fi
+              if [ -n "$breaking" ]; then
+                title="BREAKING: ${title}"
+              fi
+            fi
+            case "$type" in
+              feat) section="Features" ;;
+              fix) section="Fixes" ;;
+              perf) section="Performance" ;;
+              refactor) section="Refactoring" ;;
+              docs) section="Documentation" ;;
+              test) section="Tests" ;;
+              chore|build|ci) section="Chores" ;;
+              style) section="Style" ;;
+              revert) section="Reverts" ;;
+              *) section="Other" ;;
+            esac
+            add_item "$section" "- ${title} (${hash})"
+          done < <(git log --no-merges --pretty=format:'%s|%h' "$range")
+
+          for section in "Features" "Fixes" "Performance" "Refactoring" \
+            "Documentation" "Tests" "Chores" "Style" "Reverts" "Other"; do
+            if [ -n "${sections[$section]+x}" ]; then
+              echo "### ${section}" >> RELEASE_NOTES.md
+              echo "${sections[$section]}" >> RELEASE_NOTES.md
+              echo "" >> RELEASE_NOTES.md
+            fi
+          done
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ needs.prepare.outputs.release_name }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
+          target_commitish: ${{ needs.prepare.outputs.checkout_ref }}
+          body_path: RELEASE_NOTES.md
