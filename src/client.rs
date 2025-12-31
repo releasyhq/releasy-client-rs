@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::path::Path;
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -267,6 +269,21 @@ impl Client {
         let request = self.apply_headers(self.agent.post(&url));
         let response = request.send_json(body)?;
         self.parse_json_response(response)
+    }
+
+    pub fn upload_presigned_artifact(
+        &self,
+        upload_url: &str,
+        file_path: impl AsRef<Path>,
+    ) -> Result<()> {
+        let file = File::open(file_path.as_ref())
+            .map_err(|err| Error::Transport(ureq::Error::from(err)))?;
+        let response = self.agent.put(upload_url).send(file)?;
+        let status = response.status().as_u16();
+        if (200..300).contains(&status) {
+            return Ok(());
+        }
+        Err(self.error_from_response(response, status))
     }
 
     pub fn publish_release(&self, release_id: &str) -> Result<ReleaseResponse> {

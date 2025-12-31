@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use releasy_client::{Auth, Client, Error, ReleaseCreateRequest, ReleaseListQuery};
 
@@ -141,9 +142,20 @@ fn parse_query(path: &str) -> (String, HashMap<String, String>) {
     (base, params)
 }
 
+fn write_temp_file(contents: &[u8]) -> PathBuf {
+    let mut path = std::env::temp_dir();
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("time")
+        .as_nanos();
+    path.push(format!("releasy-client-upload-{suffix}.bin"));
+    std::fs::write(&path, contents).expect("write temp file");
+    path
+}
+
 #[test]
 fn list_releases_happy_path() {
-    let (base_url, handle) = spawn_server(|request| {
+    let (base_url, handle) = spawn_server(move |request| {
         assert_eq!(request.method, "GET");
         let (path, params) = parse_query(&request.path);
         assert_eq!(path, "/v1/releases");
@@ -183,7 +195,7 @@ fn list_releases_happy_path() {
 
 #[test]
 fn create_release_returns_api_error() {
-    let (base_url, handle) = spawn_server(|request| {
+    let (base_url, handle) = spawn_server(move |request| {
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/v1/releases");
         assert_eq!(
@@ -221,4 +233,49 @@ fn create_release_returns_api_error() {
     }
 
     handle.join().expect("server join");
+}
+
+#[test]
+fn upload_presigned_artifact_puts_file_body() {
+    let payload = b"releasy-upload-bytes";
+    let path = write_temp_file(payload);
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "PUT");
+        assert_eq!(request.path, "/upload");
+        assert_eq!(
+            request.headers.get("content-length"),
+            Some(&payload.len().to_string())
+        );
+        assert_eq!(request.body, payload);
+
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![],
+            body: "".to_string(),
+        }
+    });
+
+    let client = Client::new(base_url.clone(), Auth::None).unwrap();
+    let upload_url = format!("{}/upload", base_url);
+    client
+        .upload_presigned_artifact(&upload_url, &path)
+        .expect("upload");
+
+    handle.join().expect("server join");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn upload_presigned_artifact_missing_file_returns_transport_error() {
+    let client = Client::new("http://localhost", Auth::None).unwrap();
+    let missing_path = std::env::temp_dir().join("releasy-client-missing-upload.bin");
+    let _ = std::fs::remove_file(&missing_path);
+
+    let error = client
+        .upload_presigned_artifact("http://localhost/upload", &missing_path)
+        .expect_err("expected error");
+    match error {
+        Error::Transport(ureq::Error::Io(_)) => {}
+        other => panic!("unexpected error: {other:?}"),
+    }
 }
