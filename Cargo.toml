@@ -2,6 +2,15 @@
 name = "releasy-client"
 version = "0.1.0"
 edition = "2024"
+description = "Rust client for the Releasy release management API"
+license = "Apache-2.0"
+repository = "https://github.com/releasyhq/releasy-client-rs.git"
+documentation = "https://docs.rs/releasy-client"
+readme = "README.md"
+keywords = ["releases", "api-client", "http", "releasy", "ci"]
+categories = ["api-bindings", "web-programming::http-client"]
+rust-version = "1.85"
+exclude = ["openapi.json"]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
