@@ -155,5 +155,5 @@ jobs:
           name: ${{ needs.prepare.outputs.release_name }}
           tag_name: ${{ needs.prepare.outputs.tag }}
           prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
-          target_commitish: ${{ needs.prepare.outputs.checkout_ref }}
+          target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
