@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::models::ErrorBody;
+use crate::models::{EnterpriseErrorBody, ErrorBody};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -27,6 +27,15 @@ impl Error {
     pub fn api_error(&self) -> Option<&ErrorBody> {
         match self {
             Error::Api { error, .. } => error.as_ref(),
+            _ => None,
+        }
+    }
+
+    pub fn enterprise_error(&self) -> Option<EnterpriseErrorBody> {
+        match self {
+            Error::Api { body, .. } => body
+                .as_ref()
+                .and_then(|body| serde_json::from_str::<EnterpriseErrorBody>(body).ok()),
             _ => None,
         }
     }

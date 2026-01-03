@@ -346,6 +346,17 @@ pub struct ErrorDetail {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnterpriseErrorBody {
+    pub error: EnterpriseErrorDetail,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EnterpriseErrorDetail {
+    pub code: String,
+    pub message: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HealthResponse {
     pub status: String,
 }

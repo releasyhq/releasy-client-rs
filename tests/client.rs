@@ -563,15 +563,42 @@ fn get_user_not_found_returns_error() {
 
     let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
     let error = client.get_user("user-missing").expect_err("expected error");
-    match error {
+    match &error {
         Error::Api { status, error, .. } => {
-            assert_eq!(status, 404);
-            let detail = error.expect("error body");
+            assert_eq!(*status, 404);
+            let detail = error.as_ref().expect("error body");
             assert_eq!(detail.error.code, "not_found");
             assert_eq!(detail.error.message, "user missing");
         }
         other => panic!("unexpected error: {other:?}"),
     }
+
+    let enterprise_error = error.enterprise_error().expect("enterprise error");
+    assert_eq!(enterprise_error.error.code, "not_found");
+    assert_eq!(enterprise_error.error.message, "user missing");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn enterprise_error_parsing_skips_non_json_bodies() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/v1/admin/users");
+
+        ResponseSpec {
+            status_line: "HTTP/1.1 500 Internal Server Error".to_string(),
+            headers: vec![("Content-Type".to_string(), "text/plain".to_string())],
+            body: "oops".to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let query = UserListQuery::default();
+    let error = client.list_users(&query).expect_err("expected error");
+
+    assert!(error.enterprise_error().is_none());
+    assert_eq!(error.body(), Some("oops"));
 
     handle.join().expect("server join");
 }
