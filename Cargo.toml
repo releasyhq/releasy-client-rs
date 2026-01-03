@@ -10,7 +10,14 @@ readme = "README.md"
 keywords = ["releases", "api-client", "http", "releasy", "ci"]
 categories = ["api-bindings", "web-programming::http-client"]
 rust-version = "1.85"
-exclude = ["openapi.json"]
+exclude = [
+    ".github/",
+    ".gitignore",
+    "Cargo.toml.orig",
+    "RELEASING.md",
+    "justfile",
+    "openapi.json",
+]
 
 [dependencies]
 serde = { version = "1.0.228", features = ["derive"] }
