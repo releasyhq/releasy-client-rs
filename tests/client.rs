@@ -6,9 +6,9 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use releasy_client::{
-    AdminCustomerListQuery, AdminUpdateCustomerRequest, Auth, Client, Error, ReleaseCreateRequest,
-    ReleaseListQuery, ResetCredentialsRequest, UserCreateRequest, UserGroupsReplaceRequest,
-    UserListQuery, UserPatchRequest,
+    AdminCreateCustomerRequest, AdminCustomerListQuery, AdminUpdateCustomerRequest, Auth, Client,
+    Error, ReleaseCreateRequest, ReleaseListQuery, ResetCredentialsRequest, UserCreateRequest,
+    UserGroupsReplaceRequest, UserListQuery, UserPatchRequest,
 };
 
 struct RawRequest {
@@ -343,6 +343,71 @@ fn update_customer_happy_path() {
 }
 
 #[test]
+fn create_customer_with_idempotency_key_sends_header() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/admin/customers");
+        assert_eq!(
+            request.headers.get("idempotency-key"),
+            Some(&"idem-123".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["name"], "Acme");
+
+        let body = r#"{"id":"cust-1","name":"Acme","created_at":1700000000,"plan":null}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = AdminCreateCustomerRequest {
+        name: "Acme".to_string(),
+        plan: None,
+    };
+
+    let response = client
+        .admin_create_customer_with_idempotency(&request, Some("idem-123"))
+        .unwrap();
+    assert_eq!(response.id, "cust-1");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn create_customer_without_idempotency_key_omits_header() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/admin/customers");
+        assert!(!request.headers.contains_key("idempotency-key"));
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["name"], "Acme");
+
+        let body = r#"{"id":"cust-2","name":"Acme","created_at":1700000001,"plan":null}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = AdminCreateCustomerRequest {
+        name: "Acme".to_string(),
+        plan: None,
+    };
+
+    let response = client.admin_create_customer(&request).unwrap();
+    assert_eq!(response.id, "cust-2");
+
+    handle.join().expect("server join");
+}
+
+#[test]
 fn list_users_happy_path() {
     let (base_url, handle) = spawn_server(move |request| {
         assert_eq!(request.method, "GET");
@@ -394,6 +459,7 @@ fn create_user_happy_path() {
     let (base_url, handle) = spawn_server(move |request| {
         assert_eq!(request.method, "POST");
         assert_eq!(request.path, "/v1/admin/users");
+        assert!(!request.headers.contains_key("idempotency-key"));
         assert_eq!(
             request.headers.get("x-releasy-admin-key"),
             Some(&"admin-key".to_string())
@@ -429,6 +495,50 @@ fn create_user_happy_path() {
     let response = client.create_user(&request).unwrap();
     assert_eq!(response.id, "user-1");
     assert_eq!(response.email, "alice");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn create_user_with_idempotency_key_sends_header() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/admin/users");
+        assert_eq!(
+            request.headers.get("idempotency-key"),
+            Some(&"idem-user-1".to_string())
+        );
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["email"], "bob");
+        assert_eq!(body_json["customer_id"], "cust-2");
+
+        let body = r#"{"id":"user-2","keycloak_user_id":"kc-2","customer_id":"cust-2","email":"bob","status":"active","groups":[],"created_at":1700000005,"updated_at":1700001005}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = UserCreateRequest {
+        email: "bob".to_string(),
+        customer_id: "cust-2".to_string(),
+        display_name: None,
+        groups: Some(vec![]),
+        metadata: None,
+        status: Some("active".to_string()),
+    };
+
+    let response = client
+        .create_user_with_idempotency(&request, Some("idem-user-1"))
+        .unwrap();
+    assert_eq!(response.id, "user-2");
 
     handle.join().expect("server join");
 }

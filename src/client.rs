@@ -144,8 +144,19 @@ impl Client {
         &self,
         body: &AdminCreateCustomerRequest,
     ) -> Result<AdminCreateCustomerResponse> {
+        self.admin_create_customer_with_idempotency(body, None)
+    }
+
+    pub fn admin_create_customer_with_idempotency(
+        &self,
+        body: &AdminCreateCustomerRequest,
+        idempotency_key: Option<&str>,
+    ) -> Result<AdminCreateCustomerResponse> {
         let url = self.url("/v1/admin/customers");
-        let request = self.apply_headers(self.agent.post(&url));
+        let mut request = self.apply_headers(self.agent.post(&url));
+        if let Some(key) = idempotency_key {
+            request = request.header("Idempotency-Key", key);
+        }
         let response = request.send_json(body)?;
         self.parse_json_response(response)
     }
@@ -203,8 +214,19 @@ impl Client {
     }
 
     pub fn create_user(&self, body: &UserCreateRequest) -> Result<UserResponse> {
+        self.create_user_with_idempotency(body, None)
+    }
+
+    pub fn create_user_with_idempotency(
+        &self,
+        body: &UserCreateRequest,
+        idempotency_key: Option<&str>,
+    ) -> Result<UserResponse> {
         let url = self.url("/v1/admin/users");
-        let request = self.apply_headers(self.agent.post(&url));
+        let mut request = self.apply_headers(self.agent.post(&url));
+        if let Some(key) = idempotency_key {
+            request = request.header("Idempotency-Key", key);
+        }
         let response = request.send_json(body)?;
         self.parse_json_response(response)
     }
