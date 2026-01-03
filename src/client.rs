@@ -113,12 +113,57 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    pub fn list_customers(
+        &self,
+        query: &AdminCustomerListQuery,
+    ) -> Result<AdminCustomerListResponse> {
+        let url = self.url("/v1/admin/customers");
+        let mut request = self.apply_headers(self.agent.get(&url));
+        if let Some(value) = &query.customer_id {
+            request = request.query("customer_id", value);
+        }
+        if let Some(value) = &query.name {
+            request = request.query("name", value);
+        }
+        if let Some(value) = &query.plan {
+            request = request.query("plan", value);
+        }
+        if let Some(value) = query.limit {
+            let value = value.to_string();
+            request = request.query("limit", &value);
+        }
+        if let Some(value) = query.offset {
+            let value = value.to_string();
+            request = request.query("offset", &value);
+        }
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
     pub fn admin_create_customer(
         &self,
         body: &AdminCreateCustomerRequest,
     ) -> Result<AdminCreateCustomerResponse> {
         let url = self.url("/v1/admin/customers");
         let request = self.apply_headers(self.agent.post(&url));
+        let response = request.send_json(body)?;
+        self.parse_json_response(response)
+    }
+
+    pub fn get_customer(&self, customer_id: &str) -> Result<AdminCustomerResponse> {
+        let url = self.url(&format!("/v1/admin/customers/{}", customer_id));
+        let request = self.apply_headers(self.agent.get(&url));
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
+    pub fn update_customer(
+        &self,
+        customer_id: &str,
+        body: &AdminUpdateCustomerRequest,
+    ) -> Result<AdminCustomerResponse> {
+        let url = self.url(&format!("/v1/admin/customers/{}", customer_id));
+        let request = self.apply_headers(self.agent.patch(&url));
         let response = request.send_json(body)?;
         self.parse_json_response(response)
     }

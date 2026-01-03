@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use releasy_client::{Auth, Client, Error, ReleaseCreateRequest, ReleaseListQuery};
+use releasy_client::{
+    AdminCustomerListQuery, AdminUpdateCustomerRequest, Auth, Client, Error, ReleaseCreateRequest,
+    ReleaseListQuery,
+};
 
 struct RawRequest {
     method: String,
@@ -220,6 +223,120 @@ fn ready_check_service_unavailable_returns_error() {
         }
         other => panic!("unexpected error: {other:?}"),
     }
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn list_customers_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        let (path, params) = parse_query(&request.path);
+        assert_eq!(path, "/v1/admin/customers");
+        assert_eq!(params.get("customer_id"), Some(&"cust-1".to_string()));
+        assert_eq!(params.get("name"), Some(&"Acme".to_string()));
+        assert_eq!(params.get("plan"), Some(&"pro".to_string()));
+        assert_eq!(params.get("limit"), Some(&"100".to_string()));
+        assert_eq!(params.get("offset"), Some(&"10".to_string()));
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+
+        let body = r#"{"customers":[{"id":"cust-1","name":"Acme","created_at":1700000000,"plan":"pro","suspended_at":null}],"limit":100,"offset":10}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let query = AdminCustomerListQuery {
+        customer_id: Some("cust-1".to_string()),
+        name: Some("Acme".to_string()),
+        plan: Some("pro".to_string()),
+        limit: Some(100),
+        offset: Some(10),
+    };
+
+    let response = client.list_customers(&query).unwrap();
+    assert_eq!(response.customers.len(), 1);
+    assert_eq!(response.customers[0].id, "cust-1");
+    assert_eq!(response.customers[0].plan.as_deref(), Some("pro"));
+    assert_eq!(response.limit, 100);
+    assert_eq!(response.offset, 10);
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn get_customer_not_found_returns_error() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/v1/admin/customers/cust-missing");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+
+        let body = r#"{"error":{"code":"not_found","message":"customer missing"}}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 404 Not Found".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let error = client
+        .get_customer("cust-missing")
+        .expect_err("expected error");
+    match error {
+        Error::Api { status, error, .. } => {
+            assert_eq!(status, 404);
+            let detail = error.expect("error body");
+            assert_eq!(detail.error.code, "not_found");
+            assert_eq!(detail.error.message, "customer missing");
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn update_customer_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "PATCH");
+        assert_eq!(request.path, "/v1/admin/customers/cust-1");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["plan"], "enterprise");
+        assert_eq!(body_json.as_object().unwrap().len(), 1);
+
+        let body = r#"{"id":"cust-1","name":"Acme","created_at":1700000000,"plan":"enterprise","suspended_at":null}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = AdminUpdateCustomerRequest {
+        name: None,
+        plan: Some("enterprise".to_string()),
+        suspended: None,
+    };
+
+    let response = client.update_customer("cust-1", &request).unwrap();
+    assert_eq!(response.plan.as_deref(), Some("enterprise"));
+    assert_eq!(response.id, "cust-1");
 
     handle.join().expect("server join");
 }
