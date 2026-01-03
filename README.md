@@ -1,5 +1,9 @@
 # Releasy Client (Rust)
 
+[![Crates.io](https://img.shields.io/crates/v/releasy-client.svg)](https://crates.io/crates/releasy-client)
+[![Docs.rs](https://docs.rs/releasy-client/badge.svg)](https://docs.rs/releasy-client)
+[![License](https://img.shields.io/crates/l/releasy-client.svg)](LICENSE)
+
 Rust client for the Releasy release management API. It is a small,
 blocking HTTP client built on `ureq` with typed request/response models.
 
@@ -44,6 +48,7 @@ fn main() -> Result<()> {
 - Manage user access: `replace_groups`, `reset_credentials`
 - Pass idempotency keys: `admin_create_customer_with_idempotency` or
   `create_user_with_idempotency`.
+- Health checks: `health_check`, `live_check`, `ready_check`.
 
 #### Admin customers
 

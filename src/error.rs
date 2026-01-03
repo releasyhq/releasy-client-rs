@@ -17,6 +17,7 @@ pub enum Error {
 }
 
 impl Error {
+    /// Return the HTTP status code for API errors.
     pub fn status(&self) -> Option<u16> {
         match self {
             Error::Api { status, .. } => Some(*status),
@@ -24,6 +25,7 @@ impl Error {
         }
     }
 
+    /// Return the parsed `ErrorBody` for API errors, when available.
     pub fn api_error(&self) -> Option<&ErrorBody> {
         match self {
             Error::Api { error, .. } => error.as_ref(),
@@ -31,6 +33,7 @@ impl Error {
         }
     }
 
+    /// Parse an `EnterpriseErrorBody` from the raw error body, if present.
     pub fn enterprise_error(&self) -> Option<EnterpriseErrorBody> {
         match self {
             Error::Api { body, .. } => body
@@ -40,6 +43,7 @@ impl Error {
         }
     }
 
+    /// Return the raw response body for API errors, when available.
     pub fn body(&self) -> Option<&str> {
         match self {
             Error::Api { body, .. } => body.as_deref(),
