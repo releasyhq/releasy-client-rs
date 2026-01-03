@@ -154,6 +154,77 @@ fn write_temp_file(contents: &[u8]) -> PathBuf {
 }
 
 #[test]
+fn health_check_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/health");
+
+        let body = r#"{"status":"ok"}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::None).unwrap();
+    let response = client.health_check().unwrap();
+    assert_eq!(response.status, "ok");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn live_check_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/live");
+
+        let body = r#"{"status":"live"}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::None).unwrap();
+    let response = client.live_check().unwrap();
+    assert_eq!(response.status, "live");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn ready_check_service_unavailable_returns_error() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/ready");
+
+        let body = r#"{"error":{"code":"unavailable","message":"maintenance"}}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 503 Service Unavailable".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::None).unwrap();
+    let error = client.ready_check().expect_err("expected error");
+    match error {
+        Error::Api { status, error, .. } => {
+            assert_eq!(status, 503);
+            let detail = error.expect("error body");
+            assert_eq!(detail.error.code, "unavailable");
+            assert_eq!(detail.error.message, "maintenance");
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    handle.join().expect("server join");
+}
+
+#[test]
 fn list_releases_happy_path() {
     let (base_url, handle) = spawn_server(move |request| {
         assert_eq!(request.method, "GET");

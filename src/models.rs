@@ -220,6 +220,11 @@ pub struct ErrorDetail {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HealthResponse {
+    pub status: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReleaseCreateRequest {
     pub product: String,
     pub version: String,

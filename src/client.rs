@@ -60,6 +60,27 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    pub fn health_check(&self) -> Result<HealthResponse> {
+        let url = self.url("/health");
+        let request = self.apply_headers(self.agent.get(&url));
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
+    pub fn live_check(&self) -> Result<HealthResponse> {
+        let url = self.url("/live");
+        let request = self.apply_headers(self.agent.get(&url));
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
+    pub fn ready_check(&self) -> Result<HealthResponse> {
+        let url = self.url("/ready");
+        let request = self.apply_headers(self.agent.get(&url));
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
     pub fn list_audit_events(&self, query: &AuditEventListQuery) -> Result<AuditEventListResponse> {
         let url = self.url("/v1/admin/audit-events");
         let mut request = self.apply_headers(self.agent.get(&url));
