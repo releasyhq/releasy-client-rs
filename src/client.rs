@@ -8,6 +8,7 @@ use ureq::{Agent, RequestBuilder};
 use crate::error::{Error, Result};
 use crate::models::*;
 
+/// Authentication strategy for API requests.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Auth {
     None,
@@ -16,6 +17,7 @@ pub enum Auth {
     OperatorJwt(String),
 }
 
+/// Blocking HTTP client for the Releasy API.
 #[derive(Clone, Debug)]
 pub struct Client {
     base_url: String,
@@ -24,6 +26,7 @@ pub struct Client {
     agent: Agent,
 }
 
+/// Builder for configuring a `Client`.
 #[derive(Clone, Debug)]
 pub struct ClientBuilder {
     base_url: String,
@@ -33,26 +36,31 @@ pub struct ClientBuilder {
     agent: Option<Agent>,
 }
 
+/// Resolved download redirect location.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DownloadResolution {
     pub location: String,
 }
 
 impl Client {
+    /// Start building a client with the given base URL and auth.
     pub fn builder(base_url: impl Into<String>, auth: Auth) -> Result<ClientBuilder> {
         ClientBuilder::new(base_url, auth)
     }
 
+    /// Build a client with default configuration.
     pub fn new(base_url: impl Into<String>, auth: Auth) -> Result<Self> {
         ClientBuilder::new(base_url, auth)?.build()
     }
 
+    /// Return a cloned client with updated authentication.
     pub fn with_auth(&self, auth: Auth) -> Self {
         let mut updated = self.clone();
         updated.auth = auth;
         updated
     }
 
+    /// Fetch the OpenAPI document from the server.
     pub fn openapi_json(&self) -> Result<serde_json::Value> {
         let url = self.url("/openapi.json");
         let request = self.apply_headers(self.agent.get(&url));
@@ -60,6 +68,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Check service health (API + database).
     pub fn health_check(&self) -> Result<HealthResponse> {
         let url = self.url("/health");
         let request = self.apply_headers(self.agent.get(&url));
@@ -67,6 +76,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Check service liveness.
     pub fn live_check(&self) -> Result<HealthResponse> {
         let url = self.url("/live");
         let request = self.apply_headers(self.agent.get(&url));
@@ -74,6 +84,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Check service readiness.
     pub fn ready_check(&self) -> Result<HealthResponse> {
         let url = self.url("/ready");
         let request = self.apply_headers(self.agent.get(&url));
@@ -81,6 +92,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// List audit events with optional filters.
     pub fn list_audit_events(&self, query: &AuditEventListQuery) -> Result<AuditEventListResponse> {
         let url = self.url("/v1/admin/audit-events");
         let mut request = self.apply_headers(self.agent.get(&url));
@@ -113,6 +125,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// List customers with optional filters.
     pub fn list_customers(
         &self,
         query: &AdminCustomerListQuery,
@@ -140,6 +153,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Create a customer (admin only).
     pub fn admin_create_customer(
         &self,
         body: &AdminCreateCustomerRequest,
@@ -147,6 +161,7 @@ impl Client {
         self.admin_create_customer_with_idempotency(body, None)
     }
 
+    /// Create a customer with an optional idempotency key.
     pub fn admin_create_customer_with_idempotency(
         &self,
         body: &AdminCreateCustomerRequest,
@@ -161,6 +176,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Fetch a customer by id.
     pub fn get_customer(&self, customer_id: &str) -> Result<AdminCustomerResponse> {
         let url = self.url(&format!("/v1/admin/customers/{}", customer_id));
         let request = self.apply_headers(self.agent.get(&url));
@@ -168,6 +184,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Update customer fields.
     pub fn update_customer(
         &self,
         customer_id: &str,
@@ -179,6 +196,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// List users with optional filters.
     pub fn list_users(&self, query: &UserListQuery) -> Result<UserListResponse> {
         let url = self.url("/v1/admin/users");
         let mut request = self.apply_headers(self.agent.get(&url));
@@ -213,10 +231,12 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Create a user (admin only).
     pub fn create_user(&self, body: &UserCreateRequest) -> Result<UserResponse> {
         self.create_user_with_idempotency(body, None)
     }
 
+    /// Create a user with an optional idempotency key.
     pub fn create_user_with_idempotency(
         &self,
         body: &UserCreateRequest,
@@ -231,6 +251,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Fetch a user by id.
     pub fn get_user(&self, user_id: &str) -> Result<UserResponse> {
         let url = self.url(&format!("/v1/admin/users/{}", user_id));
         let request = self.apply_headers(self.agent.get(&url));
@@ -238,6 +259,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Patch a user by id.
     pub fn patch_user(&self, user_id: &str, body: &UserPatchRequest) -> Result<UserResponse> {
         let url = self.url(&format!("/v1/admin/users/{}", user_id));
         let request = self.apply_headers(self.agent.patch(&url));
@@ -245,6 +267,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Replace the user's groups.
     pub fn replace_groups(
         &self,
         user_id: &str,
@@ -256,6 +279,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Trigger a credential reset email for the user.
     pub fn reset_credentials(&self, user_id: &str, body: &ResetCredentialsRequest) -> Result<()> {
         let url = self.url(&format!("/v1/admin/users/{}/reset-credentials", user_id));
         let request = self.apply_headers(self.agent.post(&url));
@@ -369,6 +393,7 @@ impl Client {
         Err(self.error_from_response(response, status))
     }
 
+    /// List releases with optional filters.
     pub fn list_releases(&self, query: &ReleaseListQuery) -> Result<ReleaseListResponse> {
         let url = self.url("/v1/releases");
         let mut request = self.apply_headers(self.agent.get(&url));
@@ -396,6 +421,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Create a new release.
     pub fn create_release(&self, body: &ReleaseCreateRequest) -> Result<ReleaseResponse> {
         let url = self.url("/v1/releases");
         let request = self.apply_headers(self.agent.post(&url));
@@ -410,6 +436,7 @@ impl Client {
         self.parse_empty_response(response, 204)
     }
 
+    /// Register a release artifact.
     pub fn register_release_artifact(
         &self,
         release_id: &str,
@@ -421,6 +448,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Request a presigned upload URL for an artifact.
     pub fn presign_release_artifact_upload(
         &self,
         release_id: &str,
@@ -432,6 +460,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Upload artifact bytes to a presigned URL.
     pub fn upload_presigned_artifact(
         &self,
         upload_url: &str,
@@ -447,6 +476,7 @@ impl Client {
         Err(self.error_from_response(response, status))
     }
 
+    /// Publish a release.
     pub fn publish_release(&self, release_id: &str) -> Result<ReleaseResponse> {
         let url = self.url(&format!("/v1/releases/{}/publish", release_id));
         let request = self.apply_headers(self.agent.post(&url));
@@ -454,6 +484,7 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    /// Unpublish a release.
     pub fn unpublish_release(&self, release_id: &str) -> Result<ReleaseResponse> {
         let url = self.url(&format!("/v1/releases/{}/unpublish", release_id));
         let request = self.apply_headers(self.agent.post(&url));
