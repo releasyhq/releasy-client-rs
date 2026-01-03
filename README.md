@@ -38,6 +38,12 @@ fn main() -> Result<()> {
 - Register and upload artifacts: use `register_release_artifact`, then
   `presign_release_artifact_upload`, then `upload_presigned_artifact`.
 - Publish/unpublish a release: `publish_release` / `unpublish_release`.
+- List customers: `client.list_customers(&AdminCustomerListQuery { ... })?`
+- Fetch or update customers: `get_customer` / `update_customer`
+- Admin user flows: `list_users`, `create_user`, `get_user`, `patch_user`
+- Manage user access: `replace_groups`, `reset_credentials`
+- Pass idempotency keys: `admin_create_customer_with_idempotency` or
+  `create_user_with_idempotency`.
 
 ### Error handling
 
