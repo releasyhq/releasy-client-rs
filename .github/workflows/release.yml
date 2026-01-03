@@ -68,10 +68,45 @@ jobs:
             echo "release_name=$release_name"
           } >> "$GITHUB_OUTPUT"
 
+  build-assets:
+    name: "build: assets"
+    needs: prepare
+    if: needs.prepare.outputs.tag != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Package crate
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo package
+          mkdir -p dist
+          crate_path="$(ls target/package/releasy-client-*.crate)"
+          cp "$crate_path" dist/
+          (cd dist && sha256sum *.crate > SHA256SUMS)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/*
+
   release-github:
     name: "release: github"
     if: needs.prepare.outputs.tag != ''
-    needs: prepare
+    needs:
+      - prepare
+      - build-assets
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -149,6 +184,12 @@ jobs:
             fi
           done
 
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: dist
+
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v1
         with:
@@ -157,3 +198,4 @@ jobs:
           prerelease: ${{ needs.prepare.outputs.prerelease == 'true' }}
           target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
+          files: dist/**
