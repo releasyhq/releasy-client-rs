@@ -168,6 +168,79 @@ impl Client {
         self.parse_json_response(response)
     }
 
+    pub fn list_users(&self, query: &UserListQuery) -> Result<UserListResponse> {
+        let url = self.url("/v1/admin/users");
+        let mut request = self.apply_headers(self.agent.get(&url));
+        if let Some(value) = &query.customer_id {
+            request = request.query("customer_id", value);
+        }
+        if let Some(value) = &query.email {
+            request = request.query("email", value);
+        }
+        if let Some(value) = &query.status {
+            request = request.query("status", value);
+        }
+        if let Some(value) = &query.keycloak_user_id {
+            request = request.query("keycloak_user_id", value);
+        }
+        if let Some(value) = query.created_from {
+            let value = value.to_string();
+            request = request.query("created_from", &value);
+        }
+        if let Some(value) = query.created_to {
+            let value = value.to_string();
+            request = request.query("created_to", &value);
+        }
+        if let Some(value) = query.limit {
+            let value = value.to_string();
+            request = request.query("limit", &value);
+        }
+        if let Some(value) = &query.cursor {
+            request = request.query("cursor", value);
+        }
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
+    pub fn create_user(&self, body: &UserCreateRequest) -> Result<UserResponse> {
+        let url = self.url("/v1/admin/users");
+        let request = self.apply_headers(self.agent.post(&url));
+        let response = request.send_json(body)?;
+        self.parse_json_response(response)
+    }
+
+    pub fn get_user(&self, user_id: &str) -> Result<UserResponse> {
+        let url = self.url(&format!("/v1/admin/users/{}", user_id));
+        let request = self.apply_headers(self.agent.get(&url));
+        let response = request.call()?;
+        self.parse_json_response(response)
+    }
+
+    pub fn patch_user(&self, user_id: &str, body: &UserPatchRequest) -> Result<UserResponse> {
+        let url = self.url(&format!("/v1/admin/users/{}", user_id));
+        let request = self.apply_headers(self.agent.patch(&url));
+        let response = request.send_json(body)?;
+        self.parse_json_response(response)
+    }
+
+    pub fn replace_groups(
+        &self,
+        user_id: &str,
+        body: &UserGroupsReplaceRequest,
+    ) -> Result<UserResponse> {
+        let url = self.url(&format!("/v1/admin/users/{}/groups", user_id));
+        let request = self.apply_headers(self.agent.put(&url));
+        let response = request.send_json(body)?;
+        self.parse_json_response(response)
+    }
+
+    pub fn reset_credentials(&self, user_id: &str, body: &ResetCredentialsRequest) -> Result<()> {
+        let url = self.url(&format!("/v1/admin/users/{}/reset-credentials", user_id));
+        let request = self.apply_headers(self.agent.post(&url));
+        let response = request.send_json(body)?;
+        self.parse_empty_response(response, 202)
+    }
+
     pub fn list_entitlements(
         &self,
         customer_id: &str,

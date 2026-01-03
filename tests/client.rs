@@ -7,7 +7,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use releasy_client::{
     AdminCustomerListQuery, AdminUpdateCustomerRequest, Auth, Client, Error, ReleaseCreateRequest,
-    ReleaseListQuery,
+    ReleaseListQuery, ResetCredentialsRequest, UserCreateRequest, UserGroupsReplaceRequest,
+    UserListQuery, UserPatchRequest,
 };
 
 struct RawRequest {
@@ -337,6 +338,231 @@ fn update_customer_happy_path() {
     let response = client.update_customer("cust-1", &request).unwrap();
     assert_eq!(response.plan.as_deref(), Some("enterprise"));
     assert_eq!(response.id, "cust-1");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn list_users_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        let (path, params) = parse_query(&request.path);
+        assert_eq!(path, "/v1/admin/users");
+        assert_eq!(params.get("customer_id"), Some(&"cust-1".to_string()));
+        assert_eq!(params.get("email"), Some(&"alice".to_string()));
+        assert_eq!(params.get("status"), Some(&"active".to_string()));
+        assert_eq!(params.get("keycloak_user_id"), Some(&"kc-1".to_string()));
+        assert_eq!(params.get("created_from"), Some(&"1700000000".to_string()));
+        assert_eq!(params.get("created_to"), Some(&"1700001000".to_string()));
+        assert_eq!(params.get("limit"), Some(&"25".to_string()));
+        assert_eq!(params.get("cursor"), Some(&"cursor-1".to_string()));
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+
+        let body = r#"{"users":[{"id":"user-1","keycloak_user_id":"kc-1","customer_id":"cust-1","email":"alice","status":"active","groups":["platform_admin"],"created_at":1700000000,"updated_at":1700001000}],"next_cursor":"cursor-2"}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let query = UserListQuery {
+        customer_id: Some("cust-1".to_string()),
+        email: Some("alice".to_string()),
+        status: Some("active".to_string()),
+        keycloak_user_id: Some("kc-1".to_string()),
+        created_from: Some(1_700_000_000),
+        created_to: Some(1_700_001_000),
+        limit: Some(25),
+        cursor: Some("cursor-1".to_string()),
+    };
+
+    let response = client.list_users(&query).unwrap();
+    assert_eq!(response.users.len(), 1);
+    assert_eq!(response.users[0].id, "user-1");
+    assert_eq!(response.next_cursor.as_deref(), Some("cursor-2"));
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn create_user_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/admin/users");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["email"], "alice");
+        assert_eq!(body_json["customer_id"], "cust-1");
+        assert_eq!(body_json["status"], "active");
+        assert_eq!(
+            body_json["groups"].as_array().unwrap()[0].as_str().unwrap(),
+            "platform_admin"
+        );
+
+        let body = r#"{"id":"user-1","keycloak_user_id":"kc-1","customer_id":"cust-1","email":"alice","status":"active","groups":["platform_admin"],"created_at":1700000000,"updated_at":1700001000}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 201 Created".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = UserCreateRequest {
+        email: "alice".to_string(),
+        customer_id: "cust-1".to_string(),
+        display_name: None,
+        groups: Some(vec!["platform_admin".to_string()]),
+        metadata: None,
+        status: Some("active".to_string()),
+    };
+
+    let response = client.create_user(&request).unwrap();
+    assert_eq!(response.id, "user-1");
+    assert_eq!(response.email, "alice");
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn get_user_not_found_returns_error() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/v1/admin/users/user-missing");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+
+        let body = r#"{"error":{"code":"not_found","message":"user missing"}}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 404 Not Found".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let error = client.get_user("user-missing").expect_err("expected error");
+    match error {
+        Error::Api { status, error, .. } => {
+            assert_eq!(status, 404);
+            let detail = error.expect("error body");
+            assert_eq!(detail.error.code, "not_found");
+            assert_eq!(detail.error.message, "user missing");
+        }
+        other => panic!("unexpected error: {other:?}"),
+    }
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn patch_user_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "PATCH");
+        assert_eq!(request.path, "/v1/admin/users/user-1");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["display_name"], "Alice");
+        assert_eq!(body_json.as_object().unwrap().len(), 1);
+
+        let body = r#"{"id":"user-1","keycloak_user_id":"kc-1","customer_id":"cust-1","email":"alice","status":"active","groups":["platform_admin"],"created_at":1700000000,"updated_at":1700002000,"display_name":"Alice"}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = UserPatchRequest {
+        display_name: Some("Alice".to_string()),
+        groups: None,
+        metadata: None,
+        status: None,
+    };
+
+    let response = client.patch_user("user-1", &request).unwrap();
+    assert_eq!(response.display_name.as_deref(), Some("Alice"));
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn replace_groups_happy_path() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "PUT");
+        assert_eq!(request.path, "/v1/admin/users/user-1/groups");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(
+            body_json["groups"].as_array().unwrap()[0].as_str().unwrap(),
+            "platform_support"
+        );
+
+        let body = r#"{"id":"user-1","keycloak_user_id":"kc-1","customer_id":"cust-1","email":"alice","status":"active","groups":["platform_support"],"created_at":1700000000,"updated_at":1700002000}"#;
+        ResponseSpec {
+            status_line: "HTTP/1.1 200 OK".to_string(),
+            headers: vec![("Content-Type".to_string(), "application/json".to_string())],
+            body: body.to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = UserGroupsReplaceRequest {
+        groups: vec!["platform_support".to_string()],
+    };
+
+    let response = client.replace_groups("user-1", &request).unwrap();
+    assert_eq!(response.groups, vec!["platform_support".to_string()]);
+
+    handle.join().expect("server join");
+}
+
+#[test]
+fn reset_credentials_accepts_202() {
+    let (base_url, handle) = spawn_server(move |request| {
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/v1/admin/users/user-1/reset-credentials");
+        assert_eq!(
+            request.headers.get("x-releasy-admin-key"),
+            Some(&"admin-key".to_string())
+        );
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&request.body).expect("json body");
+        assert_eq!(body_json["send_email"], true);
+
+        ResponseSpec {
+            status_line: "HTTP/1.1 202 Accepted".to_string(),
+            headers: vec![],
+            body: "".to_string(),
+        }
+    });
+
+    let client = Client::new(base_url, Auth::AdminKey("admin-key".to_string())).unwrap();
+    let request = ResetCredentialsRequest {
+        send_email: Some(true),
+    };
+
+    client.reset_credentials("user-1", &request).expect("reset");
 
     handle.join().expect("server join");
 }
