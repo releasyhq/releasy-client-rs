@@ -199,3 +199,27 @@ jobs:
           target_commitish: ${{ github.sha }}
           body_path: RELEASE_NOTES.md
           files: dist/**
+
+  publish-crates:
+    name: "release: crates.io"
+    if: needs.prepare.outputs.tag != '' && needs.prepare.outputs.prerelease != 'true'
+    needs:
+      - prepare
+      - release-github
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.prepare.outputs.checkout_ref }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --locked
